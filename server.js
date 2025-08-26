@@ -8,9 +8,9 @@ const path = require('path');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
 const bodyParser = require('body-parser');
+const serverless = require('serverless-http');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Configure Cloudinary
 cloudinary.config({
@@ -19,9 +19,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Setup DB (SQLite file: data/submissions.db)
-fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-const db = new Database(path.join(__dirname, 'data', 'submissions.db'));
+// Setup DB (use /tmp on Vercel for writable storage)
+const dbPath = process.env.NODE_ENV === 'production'
+  ? path.join('/tmp', 'submissions.db')
+  : path.join(__dirname, 'data', 'submissions.db');
+
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = new Database(dbPath);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS submissions (
@@ -43,21 +47,24 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Serve static frontend
+// Serve static frontend (optional in serverless)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper: upload buffer to Cloudinary
-function uploadBufferToCloudinary(buffer, filename) {
+function uploadBufferToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream({ folder: 'shiv-fashion-mart' }, (error, result) => {
-      if (error) return reject(error);
-      resolve(result.secure_url);
-    });
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: 'shiv-fashion-mart' },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result.secure_url);
+      }
+    );
     streamifier.createReadStream(buffer).pipe(uploadStream);
   });
 }
 
-// Nodemailer transporter (optional but recommended)
+// Nodemailer transporter
 let transporter = null;
 if (process.env.SMTP_HOST) {
   transporter = nodemailer.createTransport({
@@ -71,10 +78,13 @@ if (process.env.SMTP_HOST) {
   });
 }
 
+// Main form submission route
 app.post('/api/submit', upload.array('images', 6), async (req, res) => {
   try {
     const { name, contact, email, links } = req.body;
-    if (!name || !contact) return res.status(400).json({ error: 'Name and contact are required.' });
+    if (!name || !contact) {
+      return res.status(400).json({ error: 'Name and contact are required.' });
+    }
 
     const linksArray = (links || '').split('\n').map(s => s.trim()).filter(Boolean);
     const files = req.files || [];
@@ -82,7 +92,7 @@ app.post('/api/submit', upload.array('images', 6), async (req, res) => {
     // Upload images to Cloudinary
     const uploadedUrls = [];
     for (const file of files) {
-      const url = await uploadBufferToCloudinary(file.buffer, file.originalname);
+      const url = await uploadBufferToCloudinary(file.buffer);
       uploadedUrls.push(url);
     }
 
@@ -93,7 +103,7 @@ app.post('/api/submit', upload.array('images', 6), async (req, res) => {
     `);
     insert.run(name, contact, email || '', JSON.stringify(linksArray), JSON.stringify(uploadedUrls));
 
-    // Email to store owner
+    // Send emails
     if (transporter) {
       const htmlLinks = linksArray.map(l => `<li><a href="${l}" target="_blank">${l}</a></li>`).join('');
       const htmlImages = uploadedUrls.map(u => `<li><a href="${u}" target="_blank">${u}</a></li>`).join('');
@@ -109,7 +119,6 @@ app.post('/api/submit', upload.array('images', 6), async (req, res) => {
                <p><strong>Images:</strong></p><ul>${htmlImages}</ul>`
       });
 
-      // Email to customer (if they gave an email)
       if (email) {
         await transporter.sendMail({
           from: process.env.FROM_EMAIL,
@@ -124,67 +133,31 @@ app.post('/api/submit', upload.array('images', 6), async (req, res) => {
       }
     }
 
-    // Respond quickly (frontend already shows message instantly)
-    return res.json({ success: true });
-
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'Server error', details: err.message });
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 
-
-// app.post('/api/submit', upload.array('images', 6), async (req, res) => {
-//   try {
-//     const { name, contact, email, links } = req.body;
-//     if (!name || !contact) return res.status(400).json({ error: 'Name and contact are required.' });
-
-//     const linksArray = (links || '').split('\n').map(s => s.trim()).filter(Boolean);
-//     const files = req.files || [];
-
-//     // Upload images to Cloudinary in parallel
-//     const uploadedUrls = [];
-//     for (const file of files) {
-//       const url = await uploadBufferToCloudinary(file.buffer, file.originalname);
-//       uploadedUrls.push(url);
-//     }
-
-//     const insert = db.prepare(`INSERT INTO submissions (name, contact, email, product_links, image_urls) VALUES (?, ?, ?, ?, ?)`);
-//     insert.run(name, contact, email || '', JSON.stringify(linksArray), JSON.stringify(uploadedUrls));
-
-//     // Send notification email to store owner (if transporter configured)
-//     if (transporter) {
-//       const ownerEmail = process.env.SMTP_USER;
-//       const base = process.env.BASE_URL || `http://localhost:${PORT}`;
-//       const htmlLinks = linksArray.map(l => `<li><a href="${l}" target="_blank">${l}</a></li>`).join('');
-//       const htmlImages = uploadedUrls.map(u => `<li><a href="${u}" target="_blank">${u}</a></li>`).join('');
-
-//       await transporter.sendMail({
-//         from: process.env.FROM_EMAIL,
-//         to: ownerEmail,
-//         subject: `New product submission from ${name}`,
-//         html: `<p><strong>Name:</strong> ${name}</p>
-//                <p><strong>Contact:</strong> ${contact}</p>
-//                <p><strong>Email:</strong> ${email || 'N/A'}</p>
-//                <p><strong>Links:</strong></p><ul>${htmlLinks}</ul>
-//                <p><strong>Images:</strong></p><ul>${htmlImages}</ul>
-//                <p>View submissions in the admin DB file (data/submissions.db)</p>`,
-//       });
-//     }
-
-//     return res.json({ success: true, message: 'Submission received. We will contact you shortly.' });
-//   } catch (err) {
-//     console.error(err);
-//     return res.status(500).json({ error: 'Server error', details: err.message });
-//   }
-// });
-
-// Admin: simple list endpoint (for quick checks)
+// Admin route
 app.get('/admin/submissions', (req, res) => {
   const rows = db.prepare('SELECT * FROM submissions ORDER BY created_at DESC').all();
-  // parse JSON fields
-  const parsed = rows.map(r => ({ ...r, product_links: JSON.parse(r.product_links || '[]'), image_urls: JSON.parse(r.image_urls || '[]') }));
+  const parsed = rows.map(r => ({
+    ...r,
+    product_links: JSON.parse(r.product_links || '[]'),
+    image_urls: JSON.parse(r.image_urls || '[]')
+  }));
   res.json(parsed);
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Export for Vercel
+module.exports = app;
+module.exports.handler = serverless(app);
+
+// Disable Next.js body parser (important for file uploads)
+module.exports.config = {
+  api: {
+    bodyParser: false
+  }
+};
