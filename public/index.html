@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Get Your 20% Discount</title>
+<style>
+    body {
+        font-family: 'Segoe UI', sans-serif;
+        background: linear-gradient(135deg, #6a11cb, #2575fc);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+    }
+    .container {
+        background: rgba(255, 255, 255, 0.95);
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0px 4px 25px rgba(0, 0, 0, 0.3);
+        max-width: 500px;
+        width: 100%;
+        text-align: center;
+        animation: fadeIn 0.5s ease-in-out;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    h2 {
+        color: #222;
+        margin-bottom: 20px;
+    }
+    label {
+        display: block;
+        font-weight: bold;
+        margin-top: 15px;
+        color: #444;
+        text-align: left;
+    }
+    input, textarea {
+        width: 100%;
+        padding: 10px;
+        margin-top: 8px;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+        outline: none;
+        font-size: 14px;
+        transition: border 0.3s;
+    }
+    input:focus, textarea:focus {
+        border-color: #2575fc;
+    }
+    textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    .drop-zone {
+        border: 2px dashed #2575fc;
+        border-radius: 10px;
+        padding: 15px;
+        margin-top: 8px;
+        cursor: pointer;
+        color: #777;
+        transition: background 0.3s, border 0.3s;
+    }
+    .drop-zone.dragover {
+        background: rgba(37, 117, 252, 0.1);
+        border-color: #6a11cb;
+    }
+    .preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+    }
+    .preview img {
+        width: 70px;
+        height: 70px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+    }
+    button {
+        background: linear-gradient(45deg, #ff5722, #ff9800);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 10px;
+        font-size: 16px;
+        cursor: pointer;
+        margin-top: 20px;
+        transition: transform 0.2s, background 0.3s;
+    }
+    button:hover {
+        transform: scale(1.05);
+        background: linear-gradient(45deg, #e64a19, #f57c00);
+    }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🎁 Get 20% Discount in Any Product!</h2>
+    <form id="discountForm" enctype="multipart/form-data">
+        
+        <label>Your Name</label>
+        <input type="text" id="name" name="name" placeholder="Enter your name" required>
+
+        <label>Email</label>
+        <input type="email" id="email" name="email" placeholder="Enter your email">
+
+        <label>Contact Number</label>
+        <input type="tel" id="contact" name="contact" placeholder="Enter your contact" required>
+
+        <label>Upload Product Images (Max 6)</label>
+        <div class="drop-zone" id="dropZone">Drag & drop images here or click to upload</div>
+        <input type="file" id="images" name="images" multiple accept="image/*" style="display:none;">
+        <div class="preview" id="preview"></div>
+
+        <label>Or Paste Product Links</label>
+        <textarea id="productLinks" name="links" placeholder="https://example.com/product1"></textarea>
+
+        <button type="submit">📩 Submit & Get Discount</button>
+    </form>
+</div>
+
+<script>
+const dropZone = document.getElementById("dropZone");
+const imagesInput = document.getElementById("images");
+const preview = document.getElementById("preview");
+
+// Click to select files
+dropZone.addEventListener("click", () => imagesInput.click());
+
+// Show previews
+imagesInput.addEventListener("change", () => {
+    preview.innerHTML = "";
+    [...imagesInput.files].forEach(file => {
+        if (file.type.startsWith("image/")) {
+            const img = document.createElement("img");
+            img.src = URL.createObjectURL(file);
+            preview.appendChild(img);
+        }
+    });
+});
+
+// Drag & drop support
+dropZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+});
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    imagesInput.files = e.dataTransfer.files;
+    imagesInput.dispatchEvent(new Event("change"));
+});
+
+// Submit form to backend API
+
+document.getElementById("discountForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+
+    // Instant feedback
+    alert("✅ Thank you! Your request has been received. We'll be in touch shortly.");
+
+    // Prepare form data
+    const formData = new FormData(this);
+
+    // Send to backend in background
+    fetch("/api/submit", {
+        method: "POST",
+        body: formData
+    }).catch(err => console.error("Background submission failed:", err));
+
+    // Reset form visuals
+    this.reset();
+    preview.innerHTML = "";
+});
+
+
+// document.getElementById("discountForm").addEventListener("submit", async function(e) {
+//     e.preventDefault();
+    
+//     const formData = new FormData(this);
+
+//     try {
+//         let response = await fetch("/api/submit", {
+//             method: "POST",
+//             body: formData
+//         });
+//         const result = await response.json();
+//         if (response.ok && result.success) {
+//             alert("✅ Thank you! Your details have been submitted.");
+//             this.reset();
+//             preview.innerHTML = "";
+//         } else {
+//             alert("❌ " + (result.error || "Submission failed."));
+//         }
+//     } catch (error) {
+//         console.error(error);
+//         alert("⚠️ Error submitting form.");
+//     }
+// });
+</script>
+
+</body>
+</html>
