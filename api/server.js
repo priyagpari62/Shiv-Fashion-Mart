@@ -48,7 +48,8 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Serve static frontend (optional in serverless)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '../public')));
+
 
 // Helper: upload buffer to Cloudinary
 function uploadBufferToCloudinary(buffer) {
@@ -162,3 +163,7 @@ module.exports.config = {
   }
 };
 
+// if (process.env.NODE_ENV !== "production") {
+//   const PORT = process.env.PORT || 3000;
+//   app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+// }
